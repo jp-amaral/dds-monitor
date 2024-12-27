@@ -5,3 +5,7 @@ services:
         image: dds-monitor
         network_mode: host
         ipc: host
+        volumes:
+          - ./run.sh:/run.sh
+        command: ["/bin/bash", "-c" , "/run.sh"]
+        tty: true

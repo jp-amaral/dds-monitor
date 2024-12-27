@@ -42,6 +42,3 @@ COPY CMakeLists.txt .
 
 RUN /bin/bash -c "source /fastdds-install/setup.bash && mkdir build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release && make -j$(nproc)"
 RUN chmod +x /monitor/build/monitor
-
-# Run the application
-CMD ["/bin/bash", "-c", "source /fastdds-install/setup.bash && /monitor/build/monitor"]
