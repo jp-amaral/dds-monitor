@@ -1,0 +1,7 @@
+version: '2.4'
+services:
+    dds-monitor:
+        hostname: dds-monitor
+        image: dds-monitor
+        network_mode: host
+        ipc: host
