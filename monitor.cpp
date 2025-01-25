@@ -27,6 +27,7 @@ struct ParticipantInfo {
     std::vector<std::string> reading_topics;
     std::vector<std::string> writing_topics;
     std::chrono::time_point<std::chrono::system_clock> discovered_timestamp;
+    unsigned int domain_id;
 };
 
 struct TopicInfo {
@@ -35,6 +36,7 @@ struct TopicInfo {
     std::unordered_set<std::string> readers;
     std::unordered_set<std::string> writers;
     std::chrono::time_point<std::chrono::system_clock> discovered_timestamp;
+    unsigned int domain_id;
 };
 
 std::unordered_map<std::string, ParticipantInfo> participants_cache;
@@ -43,6 +45,15 @@ std::mutex cache_mutex;
 
 class CustomParticipantListener : public DomainParticipantListener {
 public:
+
+    /**
+     * @brief This method is called when a participant is discovered in the DDS network.
+     * 
+     * @param participant The network participant.
+     * @param reason The reason for the discovery.
+     * @param info The participant's information (excluding the topics).
+     * @param should_be_ignored Flag to ignore the participant.
+     */
     void on_participant_discovery(
             DomainParticipant* participant,
             ParticipantDiscoveryStatus reason,
@@ -66,7 +77,8 @@ public:
                 "DISCOVERED",
                 {}, // Empty reading_topics
                 {}, // Empty writing_topics
-                now // Current timestamp
+                now, // Current timestamp
+                participant->get_domain_id() // Domain ID
             });
 
         } else if (reason == ParticipantDiscoveryStatus::REMOVED_PARTICIPANT) {
@@ -75,6 +87,11 @@ public:
 
     }
 
+    /**
+     * @brief Convert a GUID_t to a string.
+     * 
+     * @param guid The GUID to convert.
+     */
     std::string guid_to_string(const GUID_t& guid)
     {
         std::ostringstream oss;
@@ -82,6 +99,11 @@ public:
         return oss.str();
     }
 
+    /**
+     * @brief Convert a ParticipantDiscoveryStatus to a string.
+     * 
+     * @param status The status to convert.
+     */
     std::string participant_discovery_status_to_string(ParticipantDiscoveryStatus status) {
         switch (status) {
             case ParticipantDiscoveryStatus::DISCOVERED_PARTICIPANT: return "Discovered Participant";
@@ -93,6 +115,14 @@ public:
         }
     }
 
+    /**
+     * @brief This method is called when a topic writer is discovered in the DDS network.
+     * 
+     * @param participant The network participant (topic writer).
+     * @param reason The reason for the discovery.
+     * @param info The writer's topic publishing information.
+     * @param should_be_ignored Flag to ignore the writer.
+     */
     void on_data_writer_discovery(
         DomainParticipant* participant,
         WriterDiscoveryStatus reason,
@@ -108,7 +138,7 @@ public:
         std::string type_name = std::string(info.type_name.c_str());
 
         // Update topics_cache
-        auto [it, inserted] = topics_cache.emplace(topic_name, TopicInfo{topic_name, type_name, {}, {}, {}});
+        auto [it, inserted] = topics_cache.emplace(topic_name, TopicInfo{topic_name, type_name, {}, {}, {}, participant->get_domain_id()});
         auto& topic_info = it->second;
 
         if (reason == WriterDiscoveryStatus::DISCOVERED_WRITER) {
@@ -127,6 +157,7 @@ public:
                     participant.writing_topics.push_back(topic_name);
                 }
             }
+
         } else if (reason == WriterDiscoveryStatus::REMOVED_WRITER) {
             topic_info.writers.erase(guid_str);
 
@@ -145,7 +176,11 @@ public:
         should_be_ignored = false;
     }
 
-
+    /**
+     * @brief Convert a WriterDiscoveryStatus to a string.
+     * 
+     * @param status The status to convert.
+     */
     std::string writer_discovery_status_to_string(WriterDiscoveryStatus status) {
         switch (status) {
             case WriterDiscoveryStatus::DISCOVERED_WRITER: return "Discovered Writer";
@@ -156,6 +191,14 @@ public:
         }
     }
 
+    /**
+     * @brief This method is called when a topic reader is discovered in the DDS network.
+     * 
+     * @param participant The network participant (topic reader).
+     * @param reason The reason for the discovery.
+     * @param info The reader's topic subscription information.
+     * @param should_be_ignored Flag to ignore the reader.
+     */
     void on_data_reader_discovery(
         DomainParticipant* participant,
         ReaderDiscoveryStatus reason,
@@ -171,11 +214,16 @@ public:
         std::string type_name = std::string(info.type_name.c_str());
 
         // Update topics_cache
-        auto [it, inserted] = topics_cache.emplace(topic_name, TopicInfo{topic_name, type_name, {}, {}, {}});
+        auto [it, inserted] = topics_cache.emplace(topic_name, TopicInfo{topic_name, type_name, {}, {}, {}, participant->get_domain_id()});
         auto& topic_info = it->second;
 
         if (reason == ReaderDiscoveryStatus::DISCOVERED_READER) {
             topic_info.readers.insert(guid_str); // Add reader GUID
+
+            // Set the timestamp only if this is the first reader for the topic
+            if (topic_info.discovered_timestamp.time_since_epoch().count() == 0) {
+                topic_info.discovered_timestamp = now;
+            }
 
             // Update the participant's reading topics
             auto participant_it = participants_cache.find(guid_str);
@@ -203,7 +251,11 @@ public:
         should_be_ignored = false;
     }
 
-
+    /**
+     * @brief Convert a ReaderDiscoveryStatus to a string.
+     * 
+     * @param status The status to convert.
+     */
     std::string reader_discovery_status_to_string(ReaderDiscoveryStatus status) {
         switch (status) {
             case ReaderDiscoveryStatus::DISCOVERED_READER: return "Discovered Reader";
@@ -215,9 +267,12 @@ public:
     }
 };
 
-// Convert a time_point to a string in seconds.microseconds format
-std::string time_point_to_string(const std::chrono::time_point<std::chrono::system_clock>& tp)
-{
+/**
+ * @brief Convert a time_point to a string.
+ * 
+ * @param tp The time_point.
+ */
+std::string time_point_to_string(const std::chrono::time_point<std::chrono::system_clock>& tp) {
     auto duration = tp.time_since_epoch();
     auto seconds = std::chrono::duration_cast<std::chrono::seconds>(duration).count();
     auto microseconds = std::chrono::duration_cast<std::chrono::microseconds>(duration).count() % 1000000;
@@ -227,7 +282,11 @@ std::string time_point_to_string(const std::chrono::time_point<std::chrono::syst
     return oss.str();
 }
 
-// Serialize ParticipantInfo to JSON
+/**
+ * @brief Serialize ParticipantInfo to JSON.
+ * 
+ * @param participant The participant information to serialize.
+ */
 std::string serialize_participant(const ParticipantInfo& participant) {
     nlohmann::json json_obj = {
         {"name", participant.name},
@@ -235,24 +294,34 @@ std::string serialize_participant(const ParticipantInfo& participant) {
         {"status", participant.status},
         {"reading_topics", participant.reading_topics},
         {"writing_topics", participant.writing_topics},
-        {"discovered_timestamp", time_point_to_string(participant.discovered_timestamp)}
+        {"discovered_timestamp", time_point_to_string(participant.discovered_timestamp)},
+        {"domain_id", participant.domain_id}
     };
-    return json_obj.dump(4); // Pretty-print with 4 spaces indentation
+    return json_obj.dump(4); // 4 spaces indentation
 }
 
-// Serialize TopicInfo to JSON
+/**
+ * @brief Serialize TopicInfo to JSON.
+ * 
+ * @param topic The topic information to serialize.
+ */
 std::string serialize_topic(const TopicInfo& topic) {
     nlohmann::json json_obj = {
         {"name", topic.name},
         {"type", topic.type},
         {"readers", std::vector<std::string>(topic.readers.begin(), topic.readers.end())},
         {"writers", std::vector<std::string>(topic.writers.begin(), topic.writers.end())},
-        {"discovered_timestamp", time_point_to_string(topic.discovered_timestamp)}
+        {"discovered_timestamp", time_point_to_string(topic.discovered_timestamp)},
+        {"domain_id", topic.domain_id}
     };
-    return json_obj.dump(4); // Pretty-print with 4 spaces indentation
+    return json_obj.dump(4); // 4 spaces indentation
 }
 
-// Serialize a map of participants
+/**
+ * @brief Serialize a map of participants.
+ * 
+ * @param participants_cache The participants cache that contains all the participants information.
+ */
 std::string serialize_participants(const std::unordered_map<std::string, ParticipantInfo>& participants_cache) {
     nlohmann::json json_array = nlohmann::json::array();
     for (const auto& [guid, participant] : participants_cache)
@@ -262,10 +331,14 @@ std::string serialize_participants(const std::unordered_map<std::string, Partici
             {"info", nlohmann::json::parse(serialize_participant(participant))}
         });
     }
-    return json_array.dump(4); // Pretty-print with 4 spaces indentation
+    return json_array.dump(4); // 4 spaces indentation
 }
 
-// Serialize a map of topics
+/**
+ * @brief Serialize a map of topics.
+ * 
+ * @param topics_cache The topics cache that contains all the topics information.
+ */
 std::string serialize_topics(const std::unordered_map<std::string, TopicInfo>& topics_cache) {
     nlohmann::json json_array = nlohmann::json::array();
     for (const auto& [name, topic] : topics_cache)
@@ -275,7 +348,7 @@ std::string serialize_topics(const std::unordered_map<std::string, TopicInfo>& t
             {"info", nlohmann::json::parse(serialize_topic(topic))}
         });
     }
-    return json_array.dump(4); // Pretty-print with 4 spaces indentation
+    return json_array.dump(4); // 4 spaces indentation
 }
 
 int main( int argc, char* argv[] ) {

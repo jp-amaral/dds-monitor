@@ -4,8 +4,8 @@
             "name": "Linux",
             "includePath": [
                 "${workspaceFolder}/**",
-                "/home/amaral/Fast-DDS/install/fastdds/include",
-                "/home/amaral/Fast-DDS/install/fastcdr/include"
+                "/Users/amarelo/src/Fast-DDS/install/fastdds/include",
+                "/Users/amarelo/src/Fast-DDS/install/fastcdr/include"
             ],
             "defines": [],
             "compilerPath": "/usr/bin/gcc",
