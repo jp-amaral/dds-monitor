@@ -403,6 +403,20 @@ std::string serialize_topic(const TopicInfo& topic) {
 }
 
 /**
+ * @brief Serialize active TopicInfo to JSON.
+ * 
+ * @param topic The topic information to serialize.
+ */
+std::string serialize_active_topic(const TopicInfo& topic) {
+    // Only serialize topics with at least one reader and one writer
+    // This is useful to avoid sending topics that are not being used 
+    if (topic.num_readers > 0 && topic.num_writers > 0) {
+        return serialize_topic(topic);
+    }
+    return "";
+}
+
+/**
  * @brief Serialize a map of participants.
  * 
  * @param participants_cache The participants cache that contains all the participants information.
@@ -432,6 +446,26 @@ std::string serialize_topics(const std::unordered_map<std::string, TopicInfo>& t
             {"name", name},
             {"info", nlohmann::json::parse(serialize_topic(topic))}
         });
+    }
+    return json_array.dump(4); // 4 spaces indentation
+}
+
+/**
+ * @brief Serialize a map of active topics.
+ * 
+ * @param topics_cache The topics cache that contains all the topics information.
+ */
+std::string serialize_active_topics(const std::unordered_map<std::string, TopicInfo>& topics_cache) {
+    nlohmann::json json_array = nlohmann::json::array();
+    for (const auto& [name, topic] : topics_cache)
+    {
+        std::string active_topic = serialize_active_topic(topic);
+        if (!active_topic.empty()) {
+            json_array.push_back({
+                {"name", name},
+                {"info", nlohmann::json::parse(active_topic)}
+            });
+        }
     }
     return json_array.dump(4); // 4 spaces indentation
 }
@@ -471,49 +505,29 @@ int main( int argc, char* argv[] ) {
     std::cout << "Monitoring DDS topics in domain " << domain_id << "..." << std::endl;
 
     // MQTT setup
-    bool mqtt_participant_connected = false;
-    bool mqtt_topic_connected = false;
+    bool mqtt_connected = false;
     std::string mqtt_host;
     if (argc > 2) mqtt_host = argv[2];
     else mqtt_host = "127.0.0.1";
 
     std::cout << "Setting up MQTT on " << mqtt_host << "..." << std::endl;
 
-    data_mqtt_server mqtt_participants;
-    mqtt_participants.client_id = "dds-monitor-participants";
-    mqtt_participants.address = "tcp://" + mqtt_host + ":1883";
-    mqtt_participants.publish_topic = "dds/participants";
+    data_mqtt_server mqtt_server;
+    mqtt_server.client_id = "dds-monitor-topics";
+    mqtt_server.address = "tcp://" + mqtt_host + ":1883";
 
-    data_mqtt_server mqtt_topics;
-    mqtt_topics.client_id = "dds-monitor-topics";
-    mqtt_topics.address = "tcp://" + mqtt_host + ":1883";
-    mqtt_topics.publish_topic = "dds/topics";
-
-    MqttWrapper * mqtt_participants_wrapper = new MqttWrapper(mqtt_participants, empty);
-    MqttWrapper * mqtt_topics_wrapper = new MqttWrapper(mqtt_topics, empty);
+    MqttWrapper * mqtt_wrapper = new MqttWrapper(mqtt_server, empty);
 
     int max_retries = 10;
     int retries = 0;
-    while (!mqtt_participants_wrapper->is_connected() && retries < max_retries) {
+    while (!mqtt_wrapper->is_connected() && retries < max_retries) {
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
         retries++;
     }
     if (retries == max_retries) std::cerr << "Failed to connect to MQTT broker." << std::endl;
     else {
         std::cout << "Connected to MQTT broker." << std::endl;
-        mqtt_participant_connected = true;
-    }
-
-    retries = 0;
-    while (!mqtt_topics_wrapper->is_connected() && retries < max_retries) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
-        retries++;
-    }
-
-    if (retries == max_retries) std::cerr << "Failed to connect to MQTT broker." << std::endl;
-    else {
-        std::cout << "Connected to MQTT broker." << std::endl;
-        mqtt_topic_connected = true;
+        mqtt_connected = true;
     }
 
     // Keep the program running to monitor events
@@ -524,11 +538,15 @@ int main( int argc, char* argv[] ) {
             std::cout << "----------------------------------------\n" << std::endl;
             std::string participants_json = serialize_participants(participants_cache);
             std::string topics_json = serialize_topics(topics_cache);
+            std::string active_topics_json = serialize_active_topics(topics_cache);
             std::cout << "Participants:\n" << participants_json << "\n";
             std::cout << "Topics:\n" << topics_json << "\n";
 
-            if (mqtt_participant_connected) mqtt_participants_wrapper->publish("dds/participants", participants_json);
-            if (mqtt_topic_connected) mqtt_topics_wrapper->publish("dds/topics", topics_json);
+            if (mqtt_connected) {
+                mqtt_wrapper->publish("dds/participants", participants_json);
+                mqtt_wrapper->publish("dds/topics", topics_json);
+                mqtt_wrapper->publish("dds/active_topics", active_topics_json);
+            }
         }
     }
 
