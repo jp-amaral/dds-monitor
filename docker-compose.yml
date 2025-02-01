@@ -1,9 +1,10 @@
 services:
-    dds-monitor:
-        image: dds-monitor:1.0
-        network_mode: host
-        ipc: host
-        volumes:
-          - ./run.sh:/run.sh
-        command: ["/bin/bash", "-c" , "/run.sh"]
-        tty: true
+  dds-monitor:
+    container_name: dds-monitor
+    image: dds-monitor:amd-1.2
+    network_mode: host
+    ipc: host
+    volumes:
+      - ./run.sh:/run.sh
+    command: ["/bin/bash", "-c" , "/run.sh"]
+    tty: true

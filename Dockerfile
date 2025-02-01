@@ -33,6 +33,25 @@ WORKDIR /usr/src/Fast-DDS/install
 RUN mkdir -p /fastdds-install && cp -r * /fastdds-install
 RUN echo "source /fastdds-install/setup.bash" >> /etc/bash.bashrc
 
+# Build MQTT
+WORKDIR /
+RUN git clone https://github.com/eclipse/paho.mqtt.c.git
+WORKDIR /paho.mqtt.c
+RUN git checkout v1.3.13
+RUN cmake -Bbuild -H. -DPAHO_ENABLE_TESTING=OFF -DPAHO_BUILD_STATIC=ON \
+        -DPAHO_WITH_SSL=ON -DPAHO_HIGH_PERFORMANCE=ON
+RUN cmake --build build/ --target install
+RUN ldconfig
+
+WORKDIR /
+RUN git clone https://github.com/eclipse/paho.mqtt.cpp
+WORKDIR /paho.mqtt.cpp
+RUN git checkout v1.3.2
+RUN cmake -Bbuild -H. -DPAHO_BUILD_STATIC=ON \
+        -DPAHO_BUILD_DOCUMENTATION=OFF -DPAHO_BUILD_SAMPLES=ON
+RUN cmake --build build/ --target install
+RUN ldconfig
+
 # Copy project files
 WORKDIR /monitor
 COPY *.hpp .
